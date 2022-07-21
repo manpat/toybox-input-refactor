@@ -1,0 +1,20 @@
+make harder and more public separation between the ‘translator’ and ‘processor’
+
+translator converts sdl input into events
+processor converts events into actions
+
+
+maybe processor could be customisable? 
+
+
+input contexts:
+- maybe structure input contexts as a graph that can be traversed rather than a stack?
+- set of active contexts should interpret input the same predictable way independent of order; ambiguity should be an error
+    - should be unit testable
+- concept of ‘variables’ or ‘conditions’? to allow automatic transitions to contexts instead of requiring they are manually transitioned. helps with reproability? and possibly mouse input?
+- should be possible to bind actions to transitions to other contexts; e.g., allow state actions to enable another context while held
+- relative mouse actions should be configurable in what unit is given. e.g., some usecases may want the same pixel space as absolute mouse input, some may want a resolution independent unit
+- how to handle absolute mouse input for multiple contexts? context rects? variables? or maybe it should be ambiguous and an error. consider how to handle 2d ui. maybe this should be a separate system?
+- relative mouse behavior: should it warp mouse to start point on context leave? should there be option to show cursor? optional wrapping behaviour if so a la blender?
+- how to handle mouse dragging? should dragging be an action type so system can differentiate triggers and drags? should it keep context active while drag in process?
+- optional text input? raw access to input outside of contexts? perform context processing on public raw input api rather than being directly fed sdl events. polling for current state + changes
