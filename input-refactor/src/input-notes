@@ -18,3 +18,4 @@ input contexts:
 - relative mouse behavior: should it warp mouse to start point on context leave? should there be option to show cursor? optional wrapping behaviour if so a la blender?
 - how to handle mouse dragging? should dragging be an action type so system can differentiate triggers and drags? should it keep context active while drag in process?
 - optional text input? raw access to input outside of contexts? perform context processing on public raw input api rather than being directly fed sdl events. polling for current state + changes
+
