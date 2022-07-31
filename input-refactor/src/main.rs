@@ -16,6 +16,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 	context_builder.new_mouse("", 1.0);
 	let relative_mouse_context = context_builder.build();
 
+	let mut context_builder = engine.input.new_context("Absolute Mouse");
+	context_builder.new_pointer("");
+	let absolute_mouse_context = context_builder.build();
+
 
 	let mut context_builder = engine.input.new_context("Keyboard");
 	let trigger_action = context_builder.new_trigger("Trigger", input::Scancode::Space);
@@ -26,6 +30,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	let main_context = context_builder.build();
 	engine.input.enter_context(main_context);
+	engine.input.enter_context(absolute_mouse_context);
+
+
+	let mut selected_context_id = None;
 
 
 	'main: loop {
@@ -57,28 +65,32 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 		{
 			let ui = engine.imgui.frame();
-			let raw = &engine.input.raw;
+			let raw = &engine.input.raw_state;
 
 			let width = 220.0;
-			let height = 500.0;
+			let height = engine.gfx.backbuffer_size().y as f32 - 100.0;
 
-			if let Some(_window) = imgui::Window::new("Raw")
-				.size([width, height], imgui::Condition::Always)
-				.position([width*0.0 + 50.0, 50.0], imgui::Condition::Always)
-				.no_inputs()
-				.no_decoration()
-				.begin(ui)
-			{
+			let mut x = 50.0;
+
+			let mut new_window = |name, interactable| {
+				let pos_x = x;
+				x += width + 10.0;
+
+				imgui::Window::new(name)
+					.size([width, height], imgui::Condition::Always)
+					.position([pos_x, 50.0], imgui::Condition::Always)
+					.no_nav()
+					.no_decoration()
+					.mouse_inputs(interactable)
+					.scroll_bar(interactable)
+					.begin(ui)
+			};
+
+			if let Some(_window) = new_window("Raw", false) {
 				ui.text(format!("{raw:#?}"));
 			}
 
-			if let Some(_window) = imgui::Window::new("Raw Mouse")
-				.size([width, height], imgui::Condition::Always)
-				.position([width*1.0 + 50.0, 50.0], imgui::Condition::Always)
-				.no_inputs()
-				.no_decoration()
-				.begin(ui)
-			{
+			if let Some(_window) = new_window("Raw Mouse", false) {
 				let some_color = [1.0; 4];
 				let none_color = [1.0, 0.0, 0.0, 1.0];
 
@@ -107,13 +119,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 				ui.label_text("Wheel", wheel_str);
 			}
 
-			if let Some(_window) = imgui::Window::new("Buttons")
-				.size([width, height], imgui::Condition::Always)
-				.position([width*2.0 + 50.0, 50.0], imgui::Condition::Always)
-				.no_inputs()
-				.no_decoration()
-				.begin(ui)
-			{
+			if let Some(_window) = new_window("Button Presses", false) {
 				new_button_events.extend(&raw.new_buttons);
 
 				for button in new_button_events.iter().rev() {
@@ -121,13 +127,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 				}
 			}
 
-			if let Some(_window) = imgui::Window::new("State")
-				.size([width, height], imgui::Condition::Always)
-				.position([width*3.0 + 50.0, 50.0], imgui::Condition::Always)
-				.no_inputs()
-				.no_decoration()
-				.begin(ui)
-			{
+			if let Some(_window) = new_window("Frame State", false) {
 				if state.active(state_action) {
 					ui.label_text("State", "Active");
 				} else {
@@ -136,6 +136,64 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 				for event in processed_events.iter().rev() {
 					ui.text(event);
+				}
+			}
+
+			if let Some(_window) = new_window("Contexts", true) {
+				let list = imgui::ListBox::new("context_list")
+					.size([-1.0, 0.0])
+					.begin(ui)
+					.unwrap();
+
+				for context in engine.input.contexts() {
+					let color = match engine.input.is_context_active(context.id()) {
+						true => [1.0; 4],
+						false => [0.6; 4],
+					};
+
+					let _style = ui.push_style_color(imgui::StyleColor::Text, color);
+
+					let label = format!("{} {:?}", context.name(), context.id());
+					if imgui::Selectable::new(label)
+						.selected(Some(context.id()) == selected_context_id)
+						.build(ui)
+					{
+						selected_context_id = Some(context.id());
+					}
+				}
+
+				list.end();
+
+
+				if let Some(selected_context_id) = selected_context_id {
+					let context = engine.input.contexts()
+						.find(|ctx| ctx.id() == selected_context_id).unwrap();
+
+					ui.label_text("Name", context.name());
+					ui.separator();
+					ui.label_text("ID", format!("{:?}", context.id()));
+					ui.label_text("Priority", format!("{}", context.priority()));
+					ui.separator();
+
+					let list = imgui::ListBox::new("action_list")
+						.size([-1.0, 0.0])
+						.begin(ui)
+						.unwrap();
+
+					for (action, action_id) in context.actions().zip(context.action_ids()) {
+						let color = match state.active(action_id) {
+							true => [1.0; 4],
+							false => [0.6; 4],
+						};
+
+						let _style = ui.push_style_color(imgui::StyleColor::Text, color);
+
+						let kind = action.kind();
+						let name = action.name();
+						ui.text(format!("{kind:?} '{name}'"));
+					}
+
+					list.end();
 				}
 			}
 		}
