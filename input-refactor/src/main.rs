@@ -1,5 +1,13 @@
 use toybox::prelude::*;
 
+
+struct ContextGroups {
+	standard_mouse_group: input::ContextGroupID,
+	normalized_mouse_group: input::ContextGroupID,
+	preserve_aspect_mouse_group: input::ContextGroupID,
+}
+
+
 fn main() -> Result<(), Box<dyn Error>> {
 	std::env::set_var("RUST_BACKTRACE", "1");
 
@@ -7,14 +15,47 @@ fn main() -> Result<(), Box<dyn Error>> {
 	engine.imgui.set_visible(true);
 	engine.imgui.set_input_enabled(true);
 
+	// Build context groups
+	let standard_mouse_group = engine.input.new_context_group("Window Mouse");
+	let normalized_mouse_group = engine.input.new_context_group("Normalized Mouse");
+	let preserve_aspect_mouse_group = engine.input.new_context_group("PreserveAspect Mouse");
+
+	engine.input.set_context_group_active(standard_mouse_group, true);
+	engine.input.set_context_group_active(normalized_mouse_group, false);
+	engine.input.set_context_group_active(preserve_aspect_mouse_group, false);
+
 	// Build contexts
 	let mut context_builder = engine.input.new_context("Relative Mouse");
-	context_builder.new_mouse("", 1.0);
+	context_builder.new_mouse("", input::MouseSpace::Window, 1.0);
+	context_builder.set_context_group(standard_mouse_group);
 	let relative_mouse_context = context_builder.build();
 
 	let mut context_builder = engine.input.new_context("Absolute Mouse");
-	context_builder.new_pointer("");
+	context_builder.new_pointer("", input::MouseSpace::Window);
+	context_builder.set_context_group(standard_mouse_group);
 	let absolute_mouse_context = context_builder.build();
+
+
+	let mut context_builder = engine.input.new_context("Relative Mouse (Normalized)");
+	context_builder.new_mouse("", input::MouseSpace::Normalized, 1.0);
+	context_builder.set_context_group(normalized_mouse_group);
+	let relative_mouse_context_normalized = context_builder.build();
+
+	let mut context_builder = engine.input.new_context("Absolute Mouse (Normalized)");
+	context_builder.new_pointer("", input::MouseSpace::Normalized);
+	context_builder.set_context_group(normalized_mouse_group);
+	let absolute_mouse_context_normalized = context_builder.build();
+
+
+	let mut context_builder = engine.input.new_context("Relative Mouse (PreserveAspect)");
+	context_builder.new_mouse("", input::MouseSpace::PreserveAspect, 1.0);
+	context_builder.set_context_group(preserve_aspect_mouse_group);
+	let relative_mouse_context_preserve_aspect = context_builder.build();
+
+	let mut context_builder = engine.input.new_context("Absolute Mouse (PreserveAspect)");
+	context_builder.new_pointer("", input::MouseSpace::PreserveAspect);
+	context_builder.set_context_group(preserve_aspect_mouse_group);
+	let absolute_mouse_context_preserve_aspect = context_builder.build();
 
 
 	let mut context_builder = engine.input.new_context("Keyboard");
@@ -28,6 +69,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 	engine.input.enter_context(keyboard_context);
 	engine.input.enter_context(absolute_mouse_context);
+	engine.input.enter_context(absolute_mouse_context_normalized);
+	engine.input.enter_context(absolute_mouse_context_preserve_aspect);
 
 	// Set up state
 	let mut relative_mouse = false;
@@ -40,7 +83,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 		trigger_action,
 	};
 
-	let mut mouse_test_tab = MouseTestTab::new(&mut engine);
+	let context_groups = ContextGroups {
+		standard_mouse_group,
+		normalized_mouse_group,
+		preserve_aspect_mouse_group,
+	};
+
+	let mut mouse_test_tab = MouseTestTab::new(&mut engine, context_groups);
 
 
 	'main: loop {
@@ -59,6 +108,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 		if state.active(toggle_relative_mouse_action) {
 			relative_mouse = !relative_mouse;
 			engine.input.set_context_active(relative_mouse_context, relative_mouse);
+			engine.input.set_context_active(relative_mouse_context_normalized, relative_mouse);
+			engine.input.set_context_active(relative_mouse_context_preserve_aspect, relative_mouse);
 		}
 
 		if state.active(toggle_demo_window_action) {
@@ -82,7 +133,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 				}
 
 				if let Some(_tab) = ui.tab_item("Mouse") {
-					mouse_test_tab.draw(ui, &mut engine);
+					mouse_test_tab.draw(ui, &mut engine.input);
 				}
 			}
 		}
@@ -125,7 +176,7 @@ impl StateTrackingTab {
 		let state = engine.input.frame_state();
 		let raw = &engine.input.raw_state;
 
-		let width = 220.0;
+		let width = 250.0;
 		let height = engine.gfx.backbuffer_size().y as f32 - 100.0;
 
 		let mut x = 50.0;
@@ -195,33 +246,77 @@ impl StateTrackingTab {
 			}
 		}
 
-		if let Some(_window) = new_window("Contexts", true) {
-			self.context_view.draw(ui, engine);
+		if let Some(_window) = new_window("Contexts##state_tracking_contexts", true) {
+			self.context_view.draw(ui, &engine.input);
 		}
 	}
 }
 
 
 struct MouseTestTab {
-	context_view: ContextView,
+	context_groups: ContextGroups,
 }
 
 impl MouseTestTab {
-	fn new(_engine: &mut toybox::Engine) -> MouseTestTab {
+	fn new(_engine: &mut toybox::Engine, context_groups: ContextGroups) -> MouseTestTab {
 		// TODO: visual feedback for mouse input
 
 		MouseTestTab {
-			context_view: ContextView::new(),
+			context_groups,
 		}
 	}
 
-	fn draw(&mut self, ui: &imgui::Ui<'_>, engine: &mut toybox::Engine) {
-		if let Some(_window) = imgui::Window::new("Contexts")
-			.size([300.0, -1.0], imgui::Condition::Always)
-			.position([0.0, 30.0], imgui::Condition::Always)
+	fn draw(&mut self, ui: &imgui::Ui<'_>, input: &mut input::InputSystem) {
+		if let Some(_window) = imgui::Window::new("Contexts##mouse_test_contexts")
+			.size([300.0, -1.0], imgui::Condition::Once)
+			.position([0.0, 30.0], imgui::Condition::Appearing)
 			.begin(ui)
 		{
-			self.context_view.draw(ui, engine);
+			if ui.button("Window") {
+				input.set_context_group_active(self.context_groups.standard_mouse_group, true);
+				input.set_context_group_active(self.context_groups.normalized_mouse_group, false);
+				input.set_context_group_active(self.context_groups.preserve_aspect_mouse_group, false);
+			}
+
+			ui.same_line();
+			if ui.button("Normalized") {
+				input.set_context_group_active(self.context_groups.standard_mouse_group, false);
+				input.set_context_group_active(self.context_groups.normalized_mouse_group, true);
+				input.set_context_group_active(self.context_groups.preserve_aspect_mouse_group, false);
+			}
+
+			ui.same_line();
+			if ui.button("Preserve Aspect") {
+				input.set_context_group_active(self.context_groups.standard_mouse_group, false);
+				input.set_context_group_active(self.context_groups.normalized_mouse_group, false);
+				input.set_context_group_active(self.context_groups.preserve_aspect_mouse_group, true);
+			}
+
+
+			let state = input.frame_state();
+
+			for context in input.contexts() {
+				if let Some((action, action_id)) = context.mouse_action()
+					&& input.is_context_active(context.id)
+				{
+					let color = match state.active(action_id) {
+						true => [1.0; 4],
+						false => [0.6; 4],
+					};
+
+					let _style = ui.push_style_color(imgui::StyleColor::Text, color);
+
+					let kind = action.kind;
+					let name = &context.name;
+
+					if let Some(Vec2{x, y}) = state.mouse(action_id) {
+						ui.text(format!("{kind:?} '{name}' ({x}, {y})"));
+
+					} else {
+						ui.text(format!("{kind:?} '{name}'"));
+					}
+				}
+			}
 		}
 	}
 }
@@ -238,15 +333,32 @@ impl ContextView {
 		}
 	}
 
-	fn draw(&mut self, ui: &imgui::Ui<'_>, engine: &toybox::Engine) {
-		let state = engine.input.frame_state();
+	fn draw(&mut self, ui: &imgui::Ui<'_>, input: &input::InputSystem) {
+		let state = input.frame_state();
+
+		if let Some(_list) = imgui::ListBox::new("context_group_list")
+			.size([-1.0, 0.0])
+			.begin(ui)
+		{
+			for context_group in input.context_groups() {
+				let color = match input.is_context_group_active(context_group.id) {
+					true => [1.0; 4],
+					false => [0.6; 4],
+				};
+
+				let _style = ui.push_style_color(imgui::StyleColor::Text, color);
+
+				let label = format!("{} {:?}", context_group.name, context_group.id);
+				ui.text(label);
+			}
+		}
 
 		if let Some(_list) = imgui::ListBox::new("context_list")
 			.size([-1.0, 0.0])
 			.begin(ui)
 		{
-			for context in engine.input.contexts() {
-				let color = match engine.input.is_context_active(context.id()) {
+			for context in input.contexts() {
+				let color = match input.is_context_active(context.id()) {
 					true => [1.0; 4],
 					false => [0.6; 4],
 				};
@@ -264,14 +376,16 @@ impl ContextView {
 		}
 
 
-		if let Some(selected_context_id) = self.selected_context_id {
-			let context = engine.input.contexts()
-				.find(|ctx| ctx.id() == selected_context_id).unwrap();
-
+		if let Some(selected_context_id) = self.selected_context_id
+			&& let Some(context) = input.context(selected_context_id)
+		{
 			ui.label_text("Name", context.name());
 			ui.separator();
 			ui.label_text("ID", format!("{:?}", context.id()));
 			ui.label_text("Priority", format!("{}", context.priority()));
+			if let Some(context_group_id) = context.context_group_id {
+				ui.label_text("Context Group", format!("{context_group_id:?}"));
+			}
 			ui.separator();
 
 			if let Some(_list) = imgui::ListBox::new("action_list")
@@ -286,9 +400,15 @@ impl ContextView {
 
 					let _style = ui.push_style_color(imgui::StyleColor::Text, color);
 
-					let kind = action.kind();
-					let name = action.name();
-					ui.text(format!("{kind:?} '{name}'"));
+					let kind = action.kind;
+					let name = &action.name;
+
+					if let Some(Vec2{x, y}) = state.mouse(action_id) {
+						ui.text(format!("{kind:?} '{name}' ({x}, {y})"));
+
+					} else {
+						ui.text(format!("{kind:?} '{name}'"));
+					}
 				}
 			}
 		}
